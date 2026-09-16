@@ -1,0 +1,52 @@
+name: Build and release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The C# compiler that ships with Windows. No SDK, no NuGet, no restore.
+      - name: Compile
+        shell: cmd
+        run: |
+          set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+          "%CSC%" /nologo /target:winexe /optimize+ /win32icon:DragIn1.ico /out:DragIn1.exe ^
+            /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll ^
+            DragIn1.cs
+          "%CSC%" /nologo /target:winexe /optimize+ /win32icon:DragIn1.ico /out:DragIn1-Setup.exe ^
+            /resource:DragIn1.exe,DragIn1.exe ^
+            /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll ^
+            Setup.cs
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash DragIn1-Setup.exe -Algorithm SHA256).Hash
+          "SHA256  $h  DragIn1-Setup.exe" | Tee-Object -FilePath SHA256.txt
+          if ((Get-Item DragIn1-Setup.exe).Length -le (Get-Item DragIn1.exe).Length) {
+            throw "Setup is not larger than the app, so the payload was not embedded."
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DragIn1-Setup
+          path: |
+            DragIn1-Setup.exe
+            SHA256.txt
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            DragIn1-Setup.exe
+            SHA256.txt
